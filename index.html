@@ -20,7 +20,7 @@
     <meta name="msapplication-TileColor" content="#80ccff">
     <meta name="msapplication-TileImage" content="icons/ms-icon-144x144.png">
     <meta name="theme-color" content="#80ccff">    
-    <script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+    <script src="phaser.min.js"></script>
     <style type="text/css">
         body {
             margin: 0;
@@ -75,8 +75,7 @@ var config = {
     scene: {
         preload: preload,
         create: create,
-        update: update,
-        resize: resize
+        update: update
     }
 };
 
@@ -87,7 +86,8 @@ var platforms;
 var cursors;
 var score = 0;
 var gameOver = false;
-var scoreText;
+var scoreText, startText;
+var gameStarted = false;
 
 var game = new Phaser.Game(config);
 window.addEventListener('resize', function (event) {
@@ -117,15 +117,8 @@ function create ()
     //  Scale it to fit the width of the game (the original sprite is 400x32 in size)
     platforms.create(scaleW*400, window.innerHeight - 32, 'ground').setScale(scaleW*2,2).refreshBody();
 
-    //  Now let's create some ledges
-    for (i=1; i<=scaleH; i++) {
-        platforms.create(600, 400*(i+1), 'ground');
-        //platforms.create(50, 250*i, 'ground');
-        platforms.create(750, 220*i, 'ground');
-   }
-
     // The player and its settings
-    player = this.physics.add.sprite(100, 450, 'dude');
+    player = this.physics.add.sprite(100, window.innerHeight/2, 'dude');
 
     //  Player physics properties. Give the little guy a slight bounce.
     player.setBounce(0.2);
@@ -155,24 +148,14 @@ function create ()
     //  Input Events
     cursors = this.input.keyboard.createCursorKeys();
 
-    //  Some stars to collect, 12 in total, evenly spaced 70 pixels apart along the x axis
-    stars = this.physics.add.group({
-        key: 'star',
-        repeat: 11,
-        setXY: { x: 12, y: 0, stepX: 70 }
-    });
-
-    stars.children.iterate(function (child) {
-
-        //  Give each star a slightly different bounce
-        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
-
-    });
-
+    stars = this.physics.add.group();
     bombs = this.physics.add.group();
-
+    
     //  The score
-    scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
+    scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#fff' });
+
+    startText = this.add.text(window.innerWidth/2 - 110, window.innerHeight/2, 'Tap to start', { fontSize: '32px', fill: '#fff' });
+
 
     //  Collide the player and the stars with the platforms
     this.physics.add.collider(player, platforms);
@@ -181,91 +164,74 @@ function create ()
 
     //  Checks to see if the player overlaps with any of the stars, if he does call the collectStar function
     this.physics.add.overlap(player, stars, collectStar, null, this);
-
     this.physics.add.collider(player, bombs, hitBomb, null, this);
+
+    this.input.on('pointerup', function (pointer) {
+        if (!gameStarted) {
+            player.anims.play('right', true);
+            player.setVelocityX(0);
+            setTimeout(launchObject,1000);
+            gameStarted = true;
+            gameOver = false;
+            score = 0;
+            startText.setText('');
+            scoreText.setText('Score: 0');
+            player.clearTint();
+            this.physics.resume();
+        }
+        if (player.body.touching.down) {
+            let press = Math.max(Math.round(pointer.upTime-pointer.downTime),200);
+            let jump = Math.max(-(window.innerHeight*0.8),-1*press);
+            player.setVelocityY(jump);
+        }
+    }, this);    
 }
 
 function update ()
 {
-    if (gameOver)
-    {
+    if (gameOver) {
         return;
-    }
-
-    if (cursors.left.isDown)
-    {
-        player.setVelocityX(-160);
-
-        player.anims.play('left', true);
-    }
-    else if (cursors.right.isDown)
-    {
-        player.setVelocityX(160);
-
-        player.anims.play('right', true);
-    }
-    else
-    {
-        player.setVelocityX(0);
-
-        player.anims.play('turn');
-    }
-
-    if (cursors.up.isDown && player.body.touching.down)
-    {
-        player.setVelocityY(-330);
     }
 }
 
 function collectStar (player, star)
 {
     star.disableBody(true, true);
-
     //  Add and update the score
     score += 10;
     scoreText.setText('Score: ' + score);
 
-    if (stars.countActive(true) === 0)
-    {
-        //  A new batch of stars to collect
-        stars.children.iterate(function (child) {
-
-            child.enableBody(true, child.x, 0, true, true);
-
-        });
-
-        var x = (player.x < 400) ? Phaser.Math.Between(400, 800) : Phaser.Math.Between(0, 400);
-
-        var bomb = bombs.create(x, 16, 'bomb');
-        bomb.setBounce(1);
-        bomb.setCollideWorldBounds(true);
-        bomb.setVelocity(Phaser.Math.Between(-200, 200), 20);
-        bomb.allowGravity = false;
-
-    }
 }
 
 function hitBomb (player, bomb)
 {
     this.physics.pause();
-
     player.setTint(0xff0000);
-
     player.anims.play('turn');
-
+    startText.setText('Game Over');
     gameOver = true;
+    gameStarted = false;
+    bombs.clear();
+    stars.clear();
 }
 
-function resize (width, height)
-{
-    console.log(1000);
-    if (width === undefined) { width = this.sys.game.config.width; }
-    if (height === undefined) { height = this.sys.game.config.height; }
-
-    this.cameras.resize(width, height);
-
-    this.bg.setSize(width, height);
-    //this.logo.setPosition(width / 2, height / 2);
+var launchObject = function (){
+    if (Math.random() >= 0.5) {
+        let bomb = bombs.create(window.innerWidth, window.innerHeight - 100, 'bomb');
+        bomb.setBounce(1);
+        bomb.setCollideWorldBounds(false);
+        bomb.setVelocity(Phaser.Math.Between(-200, -100), 20);
+        bomb.allowGravity = true;
+    } else {
+        let star = stars.create(window.innerWidth - Phaser.Math.Between(0,window.innerWidth/2), -10, 'star');
+        star.setBounce(0.7);
+        star.setCollideWorldBounds(false);
+        star.setVelocity(Phaser.Math.Between(-200, -100), 20);
+        star.allowGravity = false;
+    }
+    if (!gameOver) {
+        setTimeout(launchObject,Phaser.Math.Between(1000,5000));
+    }
 }
 
 </script>
